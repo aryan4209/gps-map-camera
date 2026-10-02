@@ -1,5 +1,5 @@
 // Caches the app shell so it opens offline. Map tiles and addresses still need internet.
-const CACHE = 'gps-stamp-v2';
+const CACHE = 'gps-stamp-v4';
 const SHELL = ['./', 'index.html', 'styles.css', 'app.js', 'manifest.json', 'icon.svg'];
 
 self.addEventListener('install', (e) => {

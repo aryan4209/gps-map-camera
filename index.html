@@ -16,8 +16,23 @@
     <button id="settingsBtn" class="icon-btn" aria-label="Settings">&#9881;</button>
   </header>
 
+  <!-- WELCOME / PERMISSIONS (first launch) -->
+  <main id="welcome" class="screen hidden">
+    <div class="welcome-head">
+      <img src="icon.svg" alt="" width="88" height="88">
+      <h2>Welcome to GPS Map Camera</h2>
+      <p class="muted">To stamp your photos with location and time, the app needs these permissions:</p>
+    </div>
+    <section class="card">
+      <div class="perm"><span class="perm-icon">&#128247;</span><div><b>Camera</b><div class="muted small-text">To take photos inside the app</div></div><span id="permCam" class="perm-state"></span></div>
+      <div class="perm"><span class="perm-icon">&#128205;</span><div><b>Location</b><div class="muted small-text">To add the address, map and Lat/Long</div></div><span id="permLoc" class="perm-state"></span></div>
+    </section>
+    <button id="allowPerms" class="btn primary">Allow permissions</button>
+    <button id="skipPerms" class="btn ghost small">Not now</button>
+  </main>
+
   <!-- HOME -->
-  <main id="home" class="screen">
+  <main id="home" class="screen hidden">
     <section class="card" id="liveCard">
       <div class="card-title">Current location</div>
       <div id="liveTitle" class="live-title">Detecting location…</div>
@@ -28,10 +43,8 @@
     </section>
 
     <div class="actions">
-      <label class="btn primary big">
-        &#128247; Take Photo
-        <input id="cameraInput" type="file" accept="image/*" capture="environment" hidden>
-      </label>
+      <button id="takePhoto" class="btn primary big">&#128247; Take Photo</button>
+      <input id="cameraInput" type="file" accept="image/*" capture="environment" hidden>
       <label class="btn secondary big">
         &#128444; Upload Photo
         <input id="uploadInput" type="file" accept="image/*" hidden>
@@ -62,6 +75,10 @@
         <label>Longitude<input id="fLon" type="number" step="any"></label>
       </div>
       <button id="resetActual" class="btn ghost small">Reset to actual time &amp; location</button>
+      <div id="savedNote" class="saved-note hidden">
+        <span>&#128204; Your edited location is saved and used for every photo.</span>
+        <button id="useLiveGps" class="btn ghost small">Use live GPS instead</button>
+      </div>
     </section>
 
     <div class="actions sticky">
@@ -69,6 +86,19 @@
       <button id="saveBtn" class="btn primary">Save Photo</button>
     </div>
   </main>
+
+  <!-- CAMERA -->
+  <div id="camera" class="camera hidden">
+    <div class="cam-view">
+      <video id="camVideo" autoplay playsinline muted></video>
+      <canvas id="camOverlay"></canvas>
+    </div>
+    <div class="cam-controls">
+      <button id="camClose" class="icon-btn" aria-label="Close camera">&#10005;</button>
+      <button id="camShutter" class="shutter" aria-label="Take picture"></button>
+      <button id="camFlip" class="icon-btn" aria-label="Switch camera">&#8635;</button>
+    </div>
+  </div>
 
   <!-- SETTINGS -->
   <div id="settings" class="sheet hidden" role="dialog" aria-modal="true" aria-label="Settings">

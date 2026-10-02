@@ -309,7 +309,11 @@ function renderStamp(canvas, img, st, mapCanvas) {
   canvas.height = H;
   const ctx = canvas.getContext('2d');
   ctx.drawImage(img, 0, 0, W, H);
+  drawOverlay(ctx, W, H, st, mapCanvas);
+}
 
+// Draws the map + location/time box onto a W x H area.
+function drawOverlay(ctx, W, H, st, mapCanvas) {
   const u = Math.min(W / 960, H / 900);
   const margin = 40 * u;
   const pad = 20 * u;
@@ -475,12 +479,52 @@ function setLocation(lat, lon) {
   lookupAddress();
 }
 
+/* Location the user typed in. Once saved it is used for every photo
+   (and by "Reset") until they switch back to live GPS. */
+const SAVED_LOC_KEY = 'gps-map-camera-saved-location';
+let savedLoc = loadSavedLoc();
+
+function loadSavedLoc() {
+  try { return JSON.parse(localStorage.getItem(SAVED_LOC_KEY)) || null; } catch (e) { return null; }
+}
+
+function storeSavedLoc(loc) {
+  savedLoc = loc;
+  try {
+    if (loc) localStorage.setItem(SAVED_LOC_KEY, JSON.stringify(loc));
+    else localStorage.removeItem(SAVED_LOC_KEY);
+  } catch (e) { /* ignore */ }
+  updateSavedNote();
+}
+
+function saveEditedLocation() {
+  storeSavedLoc({ title: ed.title, address: ed.address, cc: ed.cc, lat: ed.lat, lon: ed.lon, manualText: !!ed.manualText });
+}
+
+function updateSavedNote() {
+  $('savedNote').classList.toggle('hidden', !savedLoc);
+}
+
+let locRequest = 0; // newer requests / user edits cancel older GPS results
+
 async function setActualLocation() {
+  const req = ++locRequest;
+  ed.manualText = false;
+  if (savedLoc) {
+    Object.assign(ed, {
+      title: savedLoc.title, address: savedLoc.address, cc: savedLoc.cc,
+      lat: savedLoc.lat, lon: savedLoc.lon, manualText: !!savedLoc.manualText,
+    });
+    fillEditorFields();
+    refreshMap();
+    render();
+    return;
+  }
   if (live.pos) setLocation(live.pos.lat, live.pos.lon); // show last known right away
   try {
     const p = await getGps();
     live.pos = p;
-    setLocation(p.lat, p.lon);
+    if (req === locRequest) setLocation(p.lat, p.lon);
   } catch (e) {
     if (!live.pos) toast(`${e.message}. You can type the location manually.`);
   }
@@ -564,12 +608,159 @@ function tickClock() {
   $('liveTime').textContent = formatStampTime(wc.date, wc.time, formatTz(tz));
 }
 
+/* ---------------- In-app camera ---------------- */
+
+const cam = { stream: null, facing: 'environment', timer: null, map: null };
+
+async function startStream() {
+  stopStream();
+  cam.stream = await navigator.mediaDevices.getUserMedia({
+    video: { facingMode: { ideal: cam.facing }, width: { ideal: 4096 }, height: { ideal: 4096 } },
+    audio: false,
+  });
+  const v = $('camVideo');
+  v.srcObject = cam.stream;
+  v.classList.toggle('mirror', cam.facing === 'user');
+  await v.play().catch(() => {});
+}
+
+function stopStream() {
+  if (cam.stream) cam.stream.getTracks().forEach((t) => t.stop());
+  cam.stream = null;
+}
+
+async function openCamera() {
+  if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+    $('cameraInput').click(); // very old browser: use the phone's camera app
+    return;
+  }
+  try {
+    await startStream();
+  } catch (e) {
+    toast(e.name === 'NotAllowedError'
+      ? 'Camera permission is blocked. Allow Camera for this app in your phone settings.'
+      : 'Camera not available on this device.', 4000);
+    return;
+  }
+  $('camera').classList.remove('hidden');
+  drawCamOverlay();
+  clearInterval(cam.timer);
+  cam.timer = setInterval(drawCamOverlay, 1000);
+  updateCamLocation();
+}
+
+function closeCamera() {
+  stopStream();
+  clearInterval(cam.timer);
+  $('camera').classList.add('hidden');
+}
+
+async function updateCamLocation() {
+  if (!savedLoc) await refreshLive();
+  const loc = savedLoc || live.pos;
+  const lat = loc ? Number(loc.lat) : NaN, lon = loc ? Number(loc.lon) : NaN;
+  if (settings.showMap && isFinite(lat) && isFinite(lon) && loc.lat !== '' && loc.lon !== '') {
+    cam.map = await buildMap(lat, lon, settings.mapType);
+  } else {
+    cam.map = null;
+  }
+  drawCamOverlay();
+}
+
+// Live preview of the stamp on top of the camera view.
+function drawCamOverlay() {
+  const c = $('camOverlay');
+  const r = c.getBoundingClientRect();
+  const dpr = window.devicePixelRatio || 1;
+  c.width = Math.round(r.width * dpr);
+  c.height = Math.round(r.height * dpr);
+  const ctx = c.getContext('2d');
+  ctx.clearRect(0, 0, c.width, c.height);
+  const tz = deviceTzMinutes();
+  const wc = wallClock(Date.now(), tz);
+  const g = live.geo || {};
+  const loc = savedLoc || {
+    title: g.title || (live.pos ? '' : 'Getting location…'),
+    address: g.address || '',
+    cc: g.cc || '',
+    lat: live.pos ? live.pos.lat : '',
+    lon: live.pos ? live.pos.lon : '',
+  };
+  drawOverlay(ctx, c.width, c.height, Object.assign({}, loc, { date: wc.date, time: wc.time, tz: formatTz(tz) }), cam.map);
+}
+
+function capturePhoto() {
+  const v = $('camVideo');
+  if (!v.videoWidth) return toast('Camera is not ready yet.');
+  const c = document.createElement('canvas');
+  c.width = v.videoWidth;
+  c.height = v.videoHeight;
+  const ctx = c.getContext('2d');
+  if (cam.facing === 'user') { ctx.translate(c.width, 0); ctx.scale(-1, 1); } // match the mirrored preview
+  ctx.drawImage(v, 0, 0);
+  c.toBlob((blob) => {
+    closeCamera();
+    if (blob) openEditor(new File([blob], 'camera.jpg', { type: 'image/jpeg' }));
+  }, 'image/jpeg', 0.95);
+}
+
+/* ---------------- Permissions (first launch) ---------------- */
+
+const PERM_KEY = 'gps-map-camera-perms-asked';
+
+async function permState(name) {
+  try { return (await navigator.permissions.query({ name })).state; } catch (e) { return 'prompt'; }
+}
+
+function setPermLabel(id, ok) {
+  const el = $(id);
+  el.textContent = ok ? 'Allowed' : 'Blocked';
+  el.className = `perm-state ${ok ? 'ok' : 'bad'}`;
+}
+
+async function requestPermissions() {
+  $('allowPerms').disabled = true;
+  try {
+    const s = await navigator.mediaDevices.getUserMedia({ video: true, audio: false });
+    s.getTracks().forEach((t) => t.stop());
+    setPermLabel('permCam', true);
+  } catch (e) {
+    setPermLabel('permCam', false);
+  }
+  try {
+    live.pos = await getGps();
+    setPermLabel('permLoc', true);
+  } catch (e) {
+    setPermLabel('permLoc', false);
+  }
+  finishWelcome();
+}
+
+function finishWelcome() {
+  try { localStorage.setItem(PERM_KEY, '1'); } catch (e) { /* ignore */ }
+  const blocked = document.querySelector('.perm-state.bad');
+  if (blocked) toast('Some permissions are blocked. You can allow them later in your phone settings.', 4000);
+  setTimeout(() => { showScreen('home'); refreshLive(); }, blocked ? 1500 : 400);
+}
+
+async function startApp() {
+  let asked = false;
+  try { asked = !!localStorage.getItem(PERM_KEY); } catch (e) { /* ignore */ }
+  const [c, l] = await Promise.all([permState('camera'), permState('geolocation')]);
+  if (!asked && (c !== 'granted' || l !== 'granted')) {
+    showScreen('welcome');
+  } else {
+    showScreen('home');
+    refreshLive();
+  }
+}
+
 /* ---------------- Navigation ---------------- */
 
 function showScreen(name) {
-  $('home').classList.toggle('hidden', name !== 'home');
-  $('editor').classList.toggle('hidden', name !== 'editor');
-  $('backBtn').classList.toggle('hidden', name === 'home');
+  for (const s of ['welcome', 'home', 'editor']) $(s).classList.toggle('hidden', name !== s);
+  $('backBtn').classList.toggle('hidden', name !== 'editor');
+  $('settingsBtn').classList.toggle('hidden', name === 'welcome');
   window.scrollTo(0, 0);
 }
 
@@ -648,11 +839,18 @@ function init() {
     if (after) after();
     render();
   });
+  // Edited location fields are saved and reused for the next photos.
+  const saveSoon = debounce(saveEditedLocation, 600);
+  // Address is looked up for new coordinates only if the user hasn't typed their own text.
+  const lookupAddressSoon = debounce(async () => {
+    if (!ed.manualText) await lookupAddress();
+    saveEditedLocation();
+  }, 1200);
+  const textEdited = () => { locRequest++; ed.manualText = true; saveSoon(); };
   // Typing new coordinates moves the map and refreshes the address.
-  const coordsChanged = () => { refreshMap(); lookupAddressSoon(); };
-  const lookupAddressSoon = debounce(lookupAddress, 1200);
-  bindText('fTitle', 'title');
-  bindText('fAddress', 'address');
+  const coordsChanged = () => { locRequest++; refreshMap(); lookupAddressSoon(); };
+  bindText('fTitle', 'title', textEdited);
+  bindText('fAddress', 'address', textEdited);
   bindText('fDate', 'date');
   bindText('fTime', 'time');
   bindText('fTz', 'tz');
@@ -660,13 +858,31 @@ function init() {
   bindText('fLon', 'lon', coordsChanged);
 
   $('resetActual').onclick = () => { setActualTime(); setActualLocation(); };
+  $('useLiveGps').onclick = () => {
+    storeSavedLoc(null);
+    toast('Saved location cleared. Using live GPS.');
+    setActualLocation();
+  };
+  updateSavedNote();
 
   $('saveBtn').onclick = savePhoto;
   $('shareBtn').onclick = sharePhoto;
 
+  $('allowPerms').onclick = requestPermissions;
+  $('skipPerms').onclick = finishWelcome;
+
+  $('takePhoto').onclick = openCamera;
+  $('camClose').onclick = closeCamera;
+  $('camShutter').onclick = capturePhoto;
+  $('camFlip').onclick = async () => {
+    cam.facing = cam.facing === 'environment' ? 'user' : 'environment';
+    try { await startStream(); } catch (e) { toast('Could not switch camera.'); }
+  };
+  window.addEventListener('resize', () => { if (cam.stream) drawCamOverlay(); });
+
   tickClock();
   setInterval(tickClock, 1000);
-  refreshLive();
+  startApp();
 
   if ('serviceWorker' in navigator && location.protocol !== 'file:') {
     navigator.serviceWorker.register('sw.js').catch(() => {});
