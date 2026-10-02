@@ -1,0 +1,123 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#0f1115">
+  <title>GPS Map Camera</title>
+  <link rel="manifest" href="manifest.json">
+  <link rel="icon" href="icon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <header class="topbar">
+    <button id="backBtn" class="icon-btn hidden" aria-label="Back">&#8592;</button>
+    <h1>GPS Map Camera</h1>
+    <button id="settingsBtn" class="icon-btn" aria-label="Settings">&#9881;</button>
+  </header>
+
+  <!-- HOME -->
+  <main id="home" class="screen">
+    <section class="card" id="liveCard">
+      <div class="card-title">Current location</div>
+      <div id="liveTitle" class="live-title">Detecting location…</div>
+      <div id="liveAddress" class="muted"></div>
+      <div id="liveCoords" class="mono"></div>
+      <div id="liveTime" class="mono"></div>
+      <button id="refreshLoc" class="btn ghost small">Refresh location</button>
+    </section>
+
+    <div class="actions">
+      <label class="btn primary big">
+        &#128247; Take Photo
+        <input id="cameraInput" type="file" accept="image/*" capture="environment" hidden>
+      </label>
+      <label class="btn secondary big">
+        &#128444; Upload Photo
+        <input id="uploadInput" type="file" accept="image/*" hidden>
+      </label>
+    </div>
+    <p class="muted center small-text">Your actual time and location are added to the photo. You can edit them before saving.</p>
+  </main>
+
+  <!-- EDITOR -->
+  <main id="editor" class="screen hidden">
+    <div class="preview-wrap">
+      <canvas id="preview"></canvas>
+      <div id="busy" class="busy hidden">Loading map…</div>
+    </div>
+
+    <section class="card">
+      <div class="card-title">Details on photo</div>
+      <p class="muted small-text">Filled in automatically with your actual time and location. Edit any field to change it.</p>
+      <div class="row">
+        <label>Date<input id="fDate" type="date"></label>
+        <label>Time<input id="fTime" type="time" step="1"></label>
+      </div>
+      <label>Timezone (GMT offset)<input id="fTz" type="text" placeholder="+05:30"></label>
+      <label>Location<input id="fTitle" type="text"></label>
+      <label>Address<textarea id="fAddress" rows="2"></textarea></label>
+      <div class="row">
+        <label>Latitude<input id="fLat" type="number" step="any"></label>
+        <label>Longitude<input id="fLon" type="number" step="any"></label>
+      </div>
+      <button id="resetActual" class="btn ghost small">Reset to actual time &amp; location</button>
+    </section>
+
+    <div class="actions sticky">
+      <button id="shareBtn" class="btn secondary">Share</button>
+      <button id="saveBtn" class="btn primary">Save Photo</button>
+    </div>
+  </main>
+
+  <!-- SETTINGS -->
+  <div id="settings" class="sheet hidden" role="dialog" aria-modal="true" aria-label="Settings">
+    <div class="sheet-body">
+      <div class="sheet-head">
+        <h2>Settings</h2>
+        <button id="closeSettings" class="icon-btn" aria-label="Close">&#10005;</button>
+      </div>
+
+      <div class="card-title">Time format</div>
+      <div class="row">
+        <label>Date format
+          <select id="sDateFmt">
+            <option>DD/MM/YYYY</option>
+            <option>MM/DD/YYYY</option>
+            <option>YYYY-MM-DD</option>
+          </select>
+        </label>
+        <label>Clock
+          <select id="sHour12">
+            <option value="1">12 hour</option>
+            <option value="0">24 hour</option>
+          </select>
+        </label>
+      </div>
+      <label class="check"><input id="sSeconds" type="checkbox"> Show seconds</label>
+
+      <div class="card-title">Stamp</div>
+      <label>Map style
+        <select id="sMapType">
+          <option value="satellite">Satellite</option>
+          <option value="street">Street</option>
+        </select>
+      </label>
+      <label class="check"><input id="sShowMap" type="checkbox"> Show map</label>
+      <label class="check"><input id="sShowFlag" type="checkbox"> Show country flag</label>
+      <label class="check"><input id="sShowAddress" type="checkbox"> Show address</label>
+      <label class="check"><input id="sShowPlus" type="checkbox"> Show plus code</label>
+      <label class="check"><input id="sShowLatLon" type="checkbox"> Show Lat / Long</label>
+      <label class="check"><input id="sShowTime" type="checkbox"> Show date &amp; time</label>
+      <label class="check"><input id="sShowBrand" type="checkbox"> Show label tag</label>
+      <label>Label text<input id="sBrand" type="text"></label>
+
+      <button id="resetSettings" class="btn ghost small">Reset to defaults</button>
+    </div>
+  </div>
+
+  <div id="toast" class="toast hidden"></div>
+
+  <script src="app.js"></script>
+</body>
+</html>
