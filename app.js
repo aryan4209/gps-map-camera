@@ -612,16 +612,96 @@ function tickClock() {
 
 const cam = { stream: null, facing: 'environment', timer: null, map: null };
 
+// Some phones reject high resolutions or a specific camera, so step down until one works.
+async function getCameraStream(facing) {
+  const tries = [
+    { facingMode: { ideal: facing }, width: { ideal: 4096 }, height: { ideal: 4096 } },
+    { facingMode: { ideal: facing }, width: { ideal: 1920 }, height: { ideal: 1080 } },
+    { facingMode: facing },
+    true,
+  ];
+  let lastErr;
+  for (const video of tries) {
+    try {
+      return await navigator.mediaDevices.getUserMedia({ video, audio: false });
+    } catch (e) {
+      lastErr = e;
+      if (e.name === 'NotAllowedError' || e.name === 'SecurityError') break; // permission problem: retrying won't help
+    }
+  }
+  throw lastErr;
+}
+
 async function startStream() {
   stopStream();
-  cam.stream = await navigator.mediaDevices.getUserMedia({
-    video: { facingMode: { ideal: cam.facing }, width: { ideal: 4096 }, height: { ideal: 4096 } },
-    audio: false,
-  });
+  cam.stream = await getCameraStream(cam.facing);
   const v = $('camVideo');
   v.srcObject = cam.stream;
   v.classList.toggle('mirror', cam.facing === 'user');
   await v.play().catch(() => {});
+}
+
+const isStandalone = () => window.matchMedia('(display-mode: standalone)').matches || navigator.standalone === true;
+
+function cameraHelp(err) {
+  const blockedSteps = isStandalone()
+    ? [
+        'Press and hold the GPS Map Camera icon on your home screen.',
+        'Tap "App info" (ⓘ), then "Permissions".',
+        'Tap "Camera" and choose "Allow".',
+        'Come back here and tap "Try again".',
+      ]
+    : [
+        'Tap the icon on the left of the address bar (🔒 or ⓘ).',
+        'Tap "Permissions" (or "Site settings").',
+        'Set "Camera" to "Allow".',
+        'Tap "Try again".',
+      ];
+  const name = err ? err.name : 'Unsupported';
+  if (name === 'NotAllowedError' || name === 'SecurityError') {
+    return {
+      title: 'Camera permission is blocked',
+      text: 'The app is not allowed to use the camera. To fix it:',
+      steps: blockedSteps.concat([
+        'Still blocked? Open phone Settings → Apps → Chrome → Permissions → Camera → Allow.',
+      ]),
+    };
+  }
+  if (name === 'NotReadableError' || name === 'AbortError' || name === 'TrackStartError') {
+    return {
+      title: 'Camera is busy',
+      text: 'Another app is using the camera.',
+      steps: ['Close other camera / video call apps.', 'Tap "Try again". If it still fails, restart the phone.'],
+    };
+  }
+  if (name === 'NotFoundError' || name === 'OverconstrainedError' || name === 'DevicesNotFoundError') {
+    return { title: 'No camera found', text: 'This device did not report a usable camera.', steps: [] };
+  }
+  if (name === 'Unsupported') {
+    return {
+      title: 'Camera not supported here',
+      text: 'This browser cannot open the camera inside the app. Open the app link in Google Chrome, or use your phone\'s camera app below.',
+      steps: [],
+    };
+  }
+  return { title: 'Could not open camera', text: `Error: ${name}${err && err.message ? ` – ${err.message}` : ''}`, steps: [] };
+}
+
+function showCameraError(err) {
+  const h = cameraHelp(err);
+  $('camErrTitle').textContent = h.title;
+  $('camErrText').textContent = h.text;
+  const ol = $('camErrSteps');
+  ol.innerHTML = '';
+  for (const s of h.steps) {
+    const li = document.createElement('li');
+    li.textContent = s;
+    ol.appendChild(li);
+  }
+  ol.classList.toggle('hidden', !h.steps.length);
+  $('camError').classList.remove('hidden');
+  $('camShutter').disabled = true;
+  $('camFlip').disabled = true;
 }
 
 function stopStream() {
@@ -630,19 +710,20 @@ function stopStream() {
 }
 
 async function openCamera() {
+  $('camera').classList.remove('hidden');
+  $('camError').classList.add('hidden');
+  $('camShutter').disabled = false;
+  $('camFlip').disabled = false;
   if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
-    $('cameraInput').click(); // very old browser: use the phone's camera app
+    showCameraError(null);
     return;
   }
   try {
     await startStream();
   } catch (e) {
-    toast(e.name === 'NotAllowedError'
-      ? 'Camera permission is blocked. Allow Camera for this app in your phone settings.'
-      : 'Camera not available on this device.', 4000);
+    showCameraError(e);
     return;
   }
-  $('camera').classList.remove('hidden');
   drawCamOverlay();
   clearInterval(cam.timer);
   cam.timer = setInterval(drawCamOverlay, 1000);
@@ -721,7 +802,7 @@ function setPermLabel(id, ok) {
 async function requestPermissions() {
   $('allowPerms').disabled = true;
   try {
-    const s = await navigator.mediaDevices.getUserMedia({ video: true, audio: false });
+    const s = await getCameraStream('environment');
     s.getTracks().forEach((t) => t.stop());
     setPermLabel('permCam', true);
   } catch (e) {
@@ -873,6 +954,15 @@ function init() {
 
   $('takePhoto').onclick = openCamera;
   $('camClose').onclick = closeCamera;
+  $('camRetry').onclick = openCamera;
+  $('camUsePhone').onclick = () => { closeCamera(); $('cameraInput').click(); };
+  // Release the camera when the app goes to the background; reopen it (or retry
+  // after the user fixed permissions in phone settings) when they come back.
+  document.addEventListener('visibilitychange', () => {
+    if ($('camera').classList.contains('hidden')) return;
+    if (document.visibilityState === 'hidden') stopStream();
+    else openCamera();
+  });
   $('camShutter').onclick = capturePhoto;
   $('camFlip').onclick = async () => {
     cam.facing = cam.facing === 'environment' ? 'user' : 'environment';

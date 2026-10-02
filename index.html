@@ -92,6 +92,13 @@
     <div class="cam-view">
       <video id="camVideo" autoplay playsinline muted></video>
       <canvas id="camOverlay"></canvas>
+      <div id="camError" class="cam-error hidden">
+        <h3 id="camErrTitle"></h3>
+        <p id="camErrText"></p>
+        <ol id="camErrSteps"></ol>
+        <button id="camRetry" class="btn primary">Try again</button>
+        <button id="camUsePhone" class="btn ghost">Use phone's camera app instead</button>
+      </div>
     </div>
     <div class="cam-controls">
       <button id="camClose" class="icon-btn" aria-label="Close camera">&#10005;</button>
